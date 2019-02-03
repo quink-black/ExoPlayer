@@ -19,28 +19,39 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.SurfaceTexture;
 import android.net.Uri;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Pair;
+import android.view.DragEvent;
 import android.view.KeyEvent;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.TextureView;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.C.ContentType;
+import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.ExoPlayerFactory;
+import com.google.android.exoplayer2.LoadControl;
 import com.google.android.exoplayer2.PlaybackPreparer;
 import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.SeekParameters;
 import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.analytics.AnalyticsListener;
 import com.google.android.exoplayer2.drm.DefaultDrmSessionManager;
 import com.google.android.exoplayer2.drm.FrameworkMediaCrypto;
 import com.google.android.exoplayer2.drm.FrameworkMediaDrm;
@@ -71,7 +82,6 @@ import com.google.android.exoplayer2.trackselection.TrackSelection;
 import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.google.android.exoplayer2.ui.DebugTextViewHelper;
 import com.google.android.exoplayer2.ui.PlayerControlView;
-import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.exoplayer2.ui.TrackSelectionView;
 import com.google.android.exoplayer2.ui.spherical.SphericalSurfaceView;
 import com.google.android.exoplayer2.upstream.DataSource;
@@ -87,8 +97,7 @@ import java.util.List;
 import java.util.UUID;
 
 /** An activity that plays media using {@link SimpleExoPlayer}. */
-public class PlayerActivity extends Activity
-    implements OnClickListener, PlaybackPreparer, PlayerControlView.VisibilityListener {
+public class PlayerActivity extends Activity {
 
   public static final String DRM_SCHEME_EXTRA = "drm_scheme";
   public static final String DRM_LICENSE_URL_EXTRA = "drm_license_url";
@@ -130,8 +139,8 @@ public class PlayerActivity extends Activity
     DEFAULT_COOKIE_MANAGER.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER);
   }
 
-  private PlayerView playerView;
-  private LinearLayout debugRootView;
+  private View playerView;
+  private SeekBar seekBar;
   private TextView debugTextView;
 
   private DataSource.Factory dataSourceFactory;
@@ -146,6 +155,8 @@ public class PlayerActivity extends Activity
   private boolean startAutoPlay;
   private int startWindow;
   private long startPosition;
+
+  private boolean firstFrameShowed;
 
   // Fields used only for ad playback. The ads loader is loaded via reflection.
 
@@ -168,30 +179,33 @@ public class PlayerActivity extends Activity
     }
 
     setContentView(R.layout.player_activity);
-    View rootView = findViewById(R.id.root);
-    rootView.setOnClickListener(this);
-    debugRootView = findViewById(R.id.controls_root);
     debugTextView = findViewById(R.id.debug_text_view);
+    debugTextView.setVisibility(View.INVISIBLE);
 
-    playerView = findViewById(R.id.player_view);
-    playerView.setControllerVisibilityListener(this);
-    playerView.setErrorMessageProvider(new PlayerErrorMessageProvider());
-    playerView.requestFocus();
-    if (sphericalStereoMode != null) {
-      int stereoMode;
-      if (SPHERICAL_STEREO_MODE_MONO.equals(sphericalStereoMode)) {
-        stereoMode = C.STEREO_MODE_MONO;
-      } else if (SPHERICAL_STEREO_MODE_TOP_BOTTOM.equals(sphericalStereoMode)) {
-        stereoMode = C.STEREO_MODE_TOP_BOTTOM;
-      } else if (SPHERICAL_STEREO_MODE_LEFT_RIGHT.equals(sphericalStereoMode)) {
-        stereoMode = C.STEREO_MODE_LEFT_RIGHT;
-      } else {
-        showToast(R.string.error_unrecognized_stereo_mode);
-        finish();
-        return;
+    seekBar = findViewById(R.id.seek_bar);
+    seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+      private long duration;
+      @Override
+      public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+        if (player != null && firstFrameShowed) {
+          player.seekTo(duration * progress / seekBar.getMax());
+        }
       }
-      ((SphericalSurfaceView) playerView.getVideoSurfaceView()).setDefaultStereoMode(stereoMode);
-    }
+
+      @Override
+      public void onStartTrackingTouch(SeekBar seekBar) {
+        if (player != null) {
+          duration = player.getDuration();
+        }
+      }
+
+      @Override
+      public void onStopTrackingTouch(SeekBar seekBar) {
+        if (player != null) {
+          player.seekTo(duration * seekBar.getProgress() / seekBar.getMax());
+        }
+      }
+    });
 
     if (savedInstanceState != null) {
       trackSelectorParameters = savedInstanceState.getParcelable(KEY_TRACK_SELECTOR_PARAMETERS);
@@ -201,6 +215,28 @@ public class PlayerActivity extends Activity
     } else {
       trackSelectorParameters = new DefaultTrackSelector.ParametersBuilder().build();
       clearStartPosition();
+    }
+
+    playerView = findViewById(R.id.player_view);
+    if (playerView instanceof SurfaceView) {
+      ((SurfaceView)playerView).getHolder().addCallback(new SurfaceHolder.Callback() {
+        @Override
+        public void surfaceCreated(SurfaceHolder holder) {
+          preparePlayback();
+        }
+
+        @Override
+        public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+
+        }
+
+        @Override
+        public void surfaceDestroyed(SurfaceHolder holder) {
+
+        }
+      });
+    } else {
+      preparePlayback();
     }
   }
 
@@ -217,9 +253,6 @@ public class PlayerActivity extends Activity
     super.onStart();
     if (Util.SDK_INT > 23) {
       initializePlayer();
-      if (playerView != null) {
-        playerView.onResume();
-      }
     }
   }
 
@@ -228,9 +261,6 @@ public class PlayerActivity extends Activity
     super.onResume();
     if (Util.SDK_INT <= 23 || player == null) {
       initializePlayer();
-      if (playerView != null) {
-        playerView.onResume();
-      }
     }
   }
 
@@ -238,9 +268,6 @@ public class PlayerActivity extends Activity
   public void onPause() {
     super.onPause();
     if (Util.SDK_INT <= 23) {
-      if (playerView != null) {
-        playerView.onPause();
-      }
       releasePlayer();
     }
   }
@@ -249,9 +276,6 @@ public class PlayerActivity extends Activity
   public void onStop() {
     super.onStop();
     if (Util.SDK_INT > 23) {
-      if (playerView != null) {
-        playerView.onPause();
-      }
       releasePlayer();
     }
   }
@@ -293,46 +317,16 @@ public class PlayerActivity extends Activity
   @Override
   public boolean dispatchKeyEvent(KeyEvent event) {
     // See whether the player view wants to handle media or DPAD keys events.
-    return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event);
-  }
-
-  // OnClickListener methods
-
-  @Override
-  public void onClick(View view) {
-    if (view.getParent() == debugRootView) {
-      MappedTrackInfo mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
-      if (mappedTrackInfo != null) {
-        CharSequence title = ((Button) view).getText();
-        int rendererIndex = (int) view.getTag();
-        int rendererType = mappedTrackInfo.getRendererType(rendererIndex);
-        boolean allowAdaptiveSelections =
-            rendererType == C.TRACK_TYPE_VIDEO
-                || (rendererType == C.TRACK_TYPE_AUDIO
-                    && mappedTrackInfo.getTypeSupport(C.TRACK_TYPE_VIDEO)
-                        == MappedTrackInfo.RENDERER_SUPPORT_NO_TRACKS);
-        Pair<AlertDialog, TrackSelectionView> dialogPair =
-            TrackSelectionView.getDialog(this, title, trackSelector, rendererIndex);
-        dialogPair.second.setShowDisableOption(true);
-        dialogPair.second.setAllowAdaptiveSelections(allowAdaptiveSelections);
-        dialogPair.first.show();
-      }
-    }
+    return super.dispatchKeyEvent(event);
   }
 
   // PlaybackControlView.PlaybackPreparer implementation
 
-  @Override
   public void preparePlayback() {
     initializePlayer();
   }
 
   // PlaybackControlView.VisibilityListener implementation
-
-  @Override
-  public void onVisibilityChange(int visibility) {
-    debugRootView.setVisibility(visibility);
-  }
 
   // Internal methods
 
@@ -428,14 +422,33 @@ public class PlayerActivity extends Activity
       trackSelector.setParameters(trackSelectorParameters);
       lastSeenTrackGroupArray = null;
 
+      LoadControl loadControl = new DefaultLoadControl.Builder()
+              .setBufferDurationsMs(1000, 5000, 500, 0)
+              .createDefaultLoadControl();
       player =
           ExoPlayerFactory.newSimpleInstance(
-              /* context= */ this, renderersFactory, trackSelector, drmSessionManager);
+              /* context= */ this, renderersFactory, trackSelector, loadControl, drmSessionManager);
       player.addListener(new PlayerEventListener());
       player.setPlayWhenReady(startAutoPlay);
-      player.addAnalyticsListener(new EventLogger(trackSelector));
-      playerView.setPlayer(player);
-      playerView.setPlaybackPreparer(this);
+      //player.addAnalyticsListener(new EventLogger(trackSelector));
+      player.addAnalyticsListener(new AnalyticsListener() {
+        @Override
+        public void onSeekStarted(EventTime eventTime) {
+          firstFrameShowed = false;
+        }
+
+        @Override
+        public void onRenderedFirstFrame(EventTime eventTime, @Nullable Surface surface) {
+          firstFrameShowed = true;
+        }
+      });
+      //player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+      player.setSeekParameters(SeekParameters.EXACT);
+      if (playerView instanceof SurfaceView) {
+        player.setVideoSurfaceView((SurfaceView)playerView);
+      } else {
+        player.setVideoTextureView((TextureView)playerView);
+      }
       debugViewHelper = new DebugTextViewHelper(player, debugTextView);
       debugViewHelper.start();
 
@@ -467,7 +480,6 @@ public class PlayerActivity extends Activity
       player.seekTo(startWindow, startPosition);
     }
     player.prepare(mediaSource, !haveStartPosition, false);
-    updateButtonVisibilities();
   }
 
   private MediaSource buildMediaSource(Uri uri) {
@@ -549,7 +561,6 @@ public class PlayerActivity extends Activity
       adsLoader.release();
       adsLoader = null;
       loadedAdTagUri = null;
-      playerView.getOverlayFrameLayout().removeAllViews();
     }
   }
 
@@ -595,7 +606,6 @@ public class PlayerActivity extends Activity
         adsLoader = loaderConstructor.newInstance(this, adTagUri);
         adUiViewGroup = new FrameLayout(this);
         // The demo app has a non-null overlay frame layout.
-        playerView.getOverlayFrameLayout().addView(adUiViewGroup);
       }
       AdsMediaSource.MediaSourceFactory adMediaSourceFactory =
           new AdsMediaSource.MediaSourceFactory() {
@@ -619,47 +629,6 @@ public class PlayerActivity extends Activity
   }
 
   // User controls
-
-  private void updateButtonVisibilities() {
-    debugRootView.removeAllViews();
-    if (player == null) {
-      return;
-    }
-
-    MappedTrackInfo mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
-    if (mappedTrackInfo == null) {
-      return;
-    }
-
-    for (int i = 0; i < mappedTrackInfo.getRendererCount(); i++) {
-      TrackGroupArray trackGroups = mappedTrackInfo.getTrackGroups(i);
-      if (trackGroups.length != 0) {
-        Button button = new Button(this);
-        int label;
-        switch (player.getRendererType(i)) {
-          case C.TRACK_TYPE_AUDIO:
-            label = R.string.exo_track_selection_title_audio;
-            break;
-          case C.TRACK_TYPE_VIDEO:
-            label = R.string.exo_track_selection_title_video;
-            break;
-          case C.TRACK_TYPE_TEXT:
-            label = R.string.exo_track_selection_title_text;
-            break;
-          default:
-            continue;
-        }
-        button.setText(label);
-        button.setTag(i);
-        button.setOnClickListener(this);
-        debugRootView.addView(button);
-      }
-    }
-  }
-
-  private void showControls() {
-    debugRootView.setVisibility(View.VISIBLE);
-  }
 
   private void showToast(int messageId) {
     showToast(getString(messageId));
@@ -687,10 +656,6 @@ public class PlayerActivity extends Activity
 
     @Override
     public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
-      if (playbackState == Player.STATE_ENDED) {
-        showControls();
-      }
-      updateButtonVisibilities();
     }
 
     @Override
@@ -709,15 +674,12 @@ public class PlayerActivity extends Activity
         initializePlayer();
       } else {
         updateStartPosition();
-        updateButtonVisibilities();
-        showControls();
       }
     }
 
     @Override
     @SuppressWarnings("ReferenceEquality")
     public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
-      updateButtonVisibilities();
       if (trackGroups != lastSeenTrackGroupArray) {
         MappedTrackInfo mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
         if (mappedTrackInfo != null) {
@@ -768,5 +730,4 @@ public class PlayerActivity extends Activity
       return Pair.create(0, errorString);
     }
   }
-
 }
