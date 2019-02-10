@@ -22,6 +22,8 @@ import android.content.pm.PackageManager;
 import android.graphics.SurfaceTexture;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Pair;
@@ -156,7 +158,10 @@ public class PlayerActivity extends Activity {
   private int startWindow;
   private long startPosition;
 
-  private boolean firstFrameShowed;
+  private boolean firstFrameShowed = true;
+  private HandlerThread seekThread;
+  private Handler seekHandler;
+  private boolean positive = true;
 
   // Fields used only for ad playback. The ads loader is loaded via reflection.
 
@@ -180,15 +185,17 @@ public class PlayerActivity extends Activity {
 
     setContentView(R.layout.player_activity);
     debugTextView = findViewById(R.id.debug_text_view);
-    debugTextView.setVisibility(View.INVISIBLE);
 
     seekBar = findViewById(R.id.seek_bar);
     seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
       private long duration;
       @Override
       public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-        if (player != null && firstFrameShowed) {
-          player.seekTo(duration * progress / seekBar.getMax());
+        if (player != null) {
+          if (firstFrameShowed) {
+            firstFrameShowed = false;
+            player.seekTo(duration * progress / seekBar.getMax());
+          }
         }
       }
 
@@ -238,6 +245,27 @@ public class PlayerActivity extends Activity {
     } else {
       preparePlayback();
     }
+
+    seekThread = new HandlerThread("Seek Thread");
+    seekThread.start();
+    int milliSeconds = 1000;
+    seekHandler = new Handler(seekThread.getLooper());
+    seekHandler.postDelayed(new Runnable() {
+      @Override
+      public void run() {
+        if (seekBar.getProgress() >= seekBar.getMax() * 9 / 10) {
+          positive = false;
+        }  else if (seekBar.getProgress() == 0) {
+            positive = true;
+        }
+        if (positive) {
+          seekBar.setProgress(seekBar.getProgress() + 1);
+        } else {
+          seekBar.setProgress(seekBar.getProgress() - 1);
+        }
+        seekHandler.postDelayed(this,milliSeconds / seekBar.getMax());
+      }
+    }, milliSeconds / seekBar.getMax());
   }
 
   @Override
@@ -432,14 +460,21 @@ public class PlayerActivity extends Activity {
       player.setPlayWhenReady(startAutoPlay);
       //player.addAnalyticsListener(new EventLogger(trackSelector));
       player.addAnalyticsListener(new AnalyticsListener() {
+        double startTime = System.currentTimeMillis();
+        int count = 0;
         @Override
-        public void onSeekStarted(EventTime eventTime) {
-          firstFrameShowed = false;
-        }
+        public void onSeekStarted(EventTime eventTime) { }
 
         @Override
         public void onRenderedFirstFrame(EventTime eventTime, @Nullable Surface surface) {
           firstFrameShowed = true;
+          count++;
+          double current = System.currentTimeMillis();
+          if (current - startTime >= 1000) {
+            debugTextView.setText("count: "+ count+ ", seek per seconds: " + String.valueOf(count * 1000 / (current - startTime)));
+            count = 0;
+            startTime = current;
+          }
         }
       });
       //player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
@@ -449,8 +484,6 @@ public class PlayerActivity extends Activity {
       } else {
         player.setVideoTextureView((TextureView)playerView);
       }
-      debugViewHelper = new DebugTextViewHelper(player, debugTextView);
-      debugViewHelper.start();
 
       MediaSource[] mediaSources = new MediaSource[uris.length];
       for (int i = 0; i < uris.length; i++) {
@@ -539,8 +572,6 @@ public class PlayerActivity extends Activity {
     if (player != null) {
       updateTrackSelectorParameters();
       updateStartPosition();
-      debugViewHelper.stop();
-      debugViewHelper = null;
       player.release();
       player = null;
       mediaSource = null;
