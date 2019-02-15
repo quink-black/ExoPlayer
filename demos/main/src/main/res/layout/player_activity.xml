@@ -20,31 +20,32 @@
     android:layout_height="match_parent"
     android:keepScreenOn="true">
 
-  <SurfaceView
-      android:id="@+id/player_view"
-      android:layout_width="match_parent"
-      android:layout_height="300dp"/>
-  <!--
-  <TextureView
-      android:id="@+id/player_view"
-      android:layout_width="match_parent"
-      android:layout_height="300dp"/>
-  -->
-
   <LinearLayout
       android:layout_width="match_parent"
-      android:layout_height="wrap_content"
-      android:layout_gravity="bottom"
+      android:layout_height="match_parent"
       android:background="#88000000"
       android:orientation="vertical">
 
-    <TextView android:id="@+id/debug_text_view"
+    <!--
+    <SurfaceView
+        android:id="@+id/player_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+    -->
+    <TextureView
+        android:id="@+id/player_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1" />
+
+    <TextView
+        android:id="@+id/debug_text_view"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingLeft="4dp"
         android:paddingRight="4dp"
         android:textSize="10sp"
-        tools:ignore="SmallSp"/>
+        tools:ignore="SmallSp" />
 
     <SeekBar
         android:id="@+id/seek_bar"

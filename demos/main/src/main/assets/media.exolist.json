@@ -8,16 +8,16 @@
         "uri": "file:///mnt/ext_sdcard/video/bunny-ippp/bunny-gop-30.mp4"
       },
       {
-        "name": "bunny gop 15",
-        "uri": "file:///mnt/ext_sdcard/video/bunny-ippp/bunny-gop-15.mp4"
-      },
-      {
-        "name": "bunny gop 45",
-        "uri": "file:///mnt/ext_sdcard/video/bunny-ippp/bunny-gop-45.mp4"
-      },
-      {
         "name": "bunny gop 60",
         "uri": "file:///mnt/ext_sdcard/video/bunny-ippp/bunny-gop-60.mp4"
+      },
+      {
+        "name": "bunny gop 90",
+        "uri": "file:///mnt/ext_sdcard/video/bunny-ippp/bunny-gop-90.mp4"
+      },
+      {
+        "name": "bunny gop 300",
+        "uri": "file:///mnt/ext_sdcard/video/bunny-ippp/bunny-gop-300.mp4"
       },
       {
         "name": "Big Buck Bunny (FLV Video)",

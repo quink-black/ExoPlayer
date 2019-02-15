@@ -194,7 +194,10 @@ public class PlayerActivity extends Activity {
         if (player != null) {
           if (firstFrameShowed) {
             firstFrameShowed = false;
-            player.seekTo(duration * progress / seekBar.getMax());
+            long N = 500;
+            long positionMs = duration * progress / seekBar.getMax();
+            positionMs = (positionMs + N / 2) / N * N;
+            player.seekTo(positionMs);
           }
         }
       }
@@ -470,8 +473,8 @@ public class PlayerActivity extends Activity {
           firstFrameShowed = true;
           count++;
           double current = System.currentTimeMillis();
-          if (current - startTime >= 1000) {
-            debugTextView.setText("count: "+ count+ ", seek per seconds: " + String.valueOf(count * 1000 / (current - startTime)));
+          if (count >= 50) {
+            debugTextView.setText("count: "+ count + ", seconds per seek: " + (current - startTime) / count / 1000.0);
             count = 0;
             startTime = current;
           }
